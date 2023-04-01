@@ -1,10 +1,10 @@
-﻿## Load WPF
+## Load WPF
 Add-Type -AssemblyName presentationframework, presentationcore
 [void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
 [void][System.Reflection.Assembly]::LoadWithPartialName("System.Drawing")
 
 ## Define USAJobs API Search Entry Points
-$USAJobsSearchAPI= "https://data.usajobs.gov/api/search?"
+## $USAJobsSearchAPI= "https://data.usajobs.gov/api/search?"
 $USAJobsHistoricSearchAPI= "https://data.usajobs.gov/api/historicjoa?"
 
 $inputXML = @"
@@ -172,39 +172,31 @@ $FromDate = ($GUIFromDatePicker.SelectedDate).ToString("MM-dd-yyyy")
 $ToDate = ($GUIToDatePicker.SelectedDate).ToString("MM-dd-yyyy")
 
 ## Submit the API Request
-$Request = Invoke-RestMethod "$($USAJobsHistoricSearchAPI)PositionSeries=$JobSeries&StartPositionOpenDate=$FromDate&EndPositionOpenDate=$ToDate"
+$InitialRequest = Invoke-RestMethod "$($USAJobsHistoricSearchAPI)PositionSeries=$JobSeries&StartPositionOpenDate=$FromDate&EndPositionOpenDate=$ToDate"
+[System.Collections.ArrayList]$OutputArray = @{}
 
-If ($Remote -eq $True) {
-    $Output = $Request.data | Where { ($_.PositionLocations -match $Location) -and ($_.TeleworkEligible -eq 'Y') } }
-
-Elseif ($Remote -eq $False) {
-    $Output = $Request.Data | Where { ($_.PositionLocations -match $Location) -and ($_.TeleworkEligible -eq 'N') } }
-
-$Results = $Output | % {
-
-$MinGrade = $_.minimumGrade
-$MaxGrade = $_.maximumGrade
-
-If ($MinGrade -eq $MaxGrade) {
-    $Grade = $MinGrade }
-Else {
-    $Grade = "$MinGrade-$MaxGrade" }
-
-$Properties = [ordered]@{
+$TotalPages = $InitialRequest.Paging.metadata.totalPages
+    for ($i = 1; $i -le $TotalPages; $i++) {
+        $RequestURL = "https://data.usajobs.gov/api/historicjoa?PositionSeries=2210&StartPositionOpenDate=01-01-2022&EndPositionOpenDate=03-29-2023&pagesize=1000&pagenumber=$i"
+        $Request = Invoke-RestMethod $RequestURL
+        If ($Remote -eq $True) {
+            $Output = $Request.data | Where { ($_.PositionLocations -match $Location) -and ($_.TeleworkEligible -eq 'Y') } }
+        Elseif ($Remote -eq $False) {
+            $Output = $Request.Data | Where { ($_.PositionLocations -match $Location) -and ($_.TeleworkEligible -eq 'N') } }
+$Output | % {
+    $Object = [PSCustomObject]@{
         'Country' = $_.positionLocations.PositionLocationCountry
         'City' = $_.positionLocations.PositionLocationCity
         'Agency' = $_.hiringAgencyName
         'Title' = $_.positionTitle
         'MinPay' = $_.minimumSalary
         'MaxPay' = $_.maximumSalary
-        'OpenDate' = $_.positionOpenDate.Split('T')[0]
-        'CloseDate' = $_.positionCloseDate.Split('T')[0]
-        'URL' = "https://www.usajobs.gov/job/$($_.USAJobsControlNumber)"
-        'Grade' = $Grade
+        'OpenDate' = $_.positionOpenDate.ToString('MM/dd/yyy')
+        'CloseDate' = $_.positionCloseDate.ToString('MM/dd/yyy')
+        'URL' = "https://www.usajobs.gov/job/$($_.USAJobsControlNumber)" }
+        $OutputArray.Add($Object) }
         }
-    New-Object -TypeName psobject -Property $Properties
-    }
-$Results | Out-GridView }
+$OutputArray | Out-GridView }
 })
 
 $Form.ShowDialog()
