@@ -212,33 +212,49 @@ $Properties = [ordered]@{
     }
 $Output | Out-GridView }
 
-## Else the checkbox is checked, so search historically instead
+## Else the Historical checkbox is checked, so search historically instead
 Elseif ($GUIHistoricalCheckBox.IsChecked -eq $True) {
 
 ## Grab the information required to build the search request
 $Location = $GUILocationTextBox.Text
 $JobSeries = $GUIJobSeriesTextBox.Text
 $Remote = $GUIRemoteJobCheckBox.IsChecked
-$FromDate = ($GUIFromDatePicker.SelectedDate).ToString("MM-dd-yyyy")
-$ToDate = ($GUIToDatePicker.SelectedDate).ToString("MM-dd-yyyy")
+$FromDate = ($GUIFromDatePicker.SelectedDate).ToString("yyyy-MM-dd")
+$ToDate = ($GUIToDatePicker.SelectedDate).ToString("yyyy-MM-dd")
 
-## Submit the API request with supplied parameters, such as the date range
-$InitialRequest = Invoke-RestMethod "$($USAJobsHistoricSearchAPI)PositionSeries=$JobSeries&LocationName=$Location&PositionOpenDate=$FromDate&EndPositionOpenDate=$ToDate"
+## Create an empty array to hold the results in for parsing
+[System.Collections.ArrayList]$ParsingArray = @{}
 
-## Create an empty array to store the results in
+## Create an empty array that will hold the formatted results
 [System.Collections.ArrayList]$OutputArray = @{}
 
 ## Get total amount of pages returned from request, submit new request for each if required
-$TotalPages = $InitialRequest.Paging.metadata.totalPages
-    for ($i = 1; $i -le $TotalPages; $i++) {
-        $RequestURL = "https://data.usajobs.gov/api/historicjoa?PositionSeries=2210&StartPositionOpenDate=01-01-2022&EndPositionOpenDate=03-29-2023&pagesize=1000&pagenumber=$i"
-        $Request = Invoke-RestMethod $RequestURL
-        If ($Remote -eq $True) {
-            $Output = $Request.data | Where { ($_.PositionLocations -match $Location) -and ($_.TeleworkEligible -eq 'Y') } }
-        Elseif ($Remote -eq $False) {
-            $Output = $Request.Data | Where { ($_.PositionLocations -match $Location) -and ($_.TeleworkEligible -eq 'N') } }
+## The Historic USAJobs API Endpoint no longer allows you to specify the page number manually
+## You now have to use the Continuation token provided in their reply to collect all results
 
-$Output | % {
+## Perform the initial request, add it to the parsing array, check to see if we have to loop
+$RequestURL = "$($USAJobsHistoricSearchAPI)PositionSeries=$JobSeries&StartPositionOpenDate=$FromDate&EndPositionOpenDate=$ToDate"
+$Response = Invoke-RestMethod $RequestURL
+
+$Response.data | % {$ParsingArray.Add($_)}
+
+## While ContinuationToken is present, loop the requests while adding the results the parsing array
+$ContinuationToken = $Response.paging.metadata.continuationToken
+
+while ($ContinuationToken) {
+    $RequestURL = "$($RequestURL)&continuationtoken=$ContinuationToken"
+    $Response = Invoke-RestMethod $RequestURL
+    $Response.data | % {$ParsingArray.Add($_)}
+
+        if ($Response.paging.metadata.continuationtoken) {
+            $ContinuationToken = $Response.paging.metadata.continuationToken }
+
+        else {
+            $ContinuationToken = $null }
+    }
+
+## Build the output object with the fields we care about, add to the empty array
+$ParsingArray | % {
     $Object = [PSCustomObject]@{
         'Country' = $_.positionLocations.PositionLocationCountry
         'City' = $_.positionLocations.PositionLocationCity
@@ -246,11 +262,12 @@ $Output | % {
         'Title' = $_.positionTitle
         'MinPay' = $_.minimumSalary
         'MaxPay' = $_.maximumSalary
-        'OpenDate' = $_.positionOpenDate.ToString('MM/dd/yyy')
-        'CloseDate' = $_.positionCloseDate.ToString('MM/dd/yyy')
+        'OpenDate' = $_.positionOpenDate
+        'CloseDate' = $_.positionCloseDate
         'URL' = "https://www.usajobs.gov/job/$($_.USAJobsControlNumber)" }
-        $OutputArray.Add($Object) }
-        }
+        $OutPutArray.Add($Object) }
+
+
 $OutputArray | Out-GridView }
 })
 
