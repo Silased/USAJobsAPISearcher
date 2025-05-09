@@ -1,7 +1,6 @@
 
 
 # USAJobsAPISearcher
-### The USAJobs Historical API Endpoint no longer accepts location as a search filter, breaking my implementation. I will update the script to parse and filter the results after receiving a more generic response.
 Simple PowerShell script that uses a WPF GUI to search USAJobs utilizing their API. Allows you to search current jobs and historical.
 I created this primarily to view the frequency of which certain locations would post specific series of jobs historically.
 It currently displays the results using Out-GridView, but may look into better/prettier output options.
